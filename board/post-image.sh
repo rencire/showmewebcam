@@ -90,6 +90,11 @@ __EOF__
 			cat "$BR2_EXTERNAL_PICAM_PATH/camera.txt" >> "${BINARIES_DIR}/camera.txt"
 		fi
 
+		# Add default enable-serial-debug file
+		if [ -f "$BR2_EXTERNAL_PICAM_PATH/enable-serial-debug" ]; then
+			cp "$BR2_EXTERNAL_PICAM_PATH/enable-serial-debug" "${BINARIES_DIR}/enable-serial-debug"
+		fi
+
 		;;
 	esac
 

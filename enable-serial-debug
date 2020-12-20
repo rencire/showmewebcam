@@ -1,0 +1,7 @@
+# This file signifies that you want to enable the debug interface
+# via the USB port. Once you have configured the webcam to your needs
+# it is recommended that you delete this file. It is so that your webcam's
+# firmware can't be exploited by the host computer's software.
+#
+# In the future, we will not place this file here by default, instead you'll
+# have to manually create this file.
