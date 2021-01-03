@@ -1,10 +1,13 @@
 #!/bin/sh
 
+ID_VENDOR="0x1d6b"
+ID_PRODUCT="0x0104"
+
 # Eventually we want to disable the serial interface by default
 # As it can be used as a persistence exploitation vector
 CONFIGURE_USB_SERIAL=false
 CONFIGURE_USB_WEBCAM=true
-CONFIGURE_USB_NETWORK=false
+CONFIGURE_USB_NETWORK=true
 
 # Now apply settings from the boot config
 if [ -f "/boot/enable-serial-debug" ] ; then
@@ -16,46 +19,20 @@ if [ -f "$USB_NETWORK_FILE" ] ; then
   CONFIGURE_USB_NETWORK=true
   _USB_NETWORK_TYPE=$(head -n1 "$USB_NETWORK_FILE")
   case "$_USB_NETWORK_TYPE" in
-    RNDIS)
+    ECM)
       USB_NETWORK_TYPE=$_USB_NETWORK_TYPE
       ;;
     *)
-      # Default to ECM networking
-      USB_NETWORK_TYPE=ECM
+      # Default to RNDIS networking
+      USB_NETWORK_TYPE=RNDIS
       ;;
   esac
 fi
 
-# Windows & Mac users might need to disable USB Webcam
-# when they enable network
 if [ -f "/boot/disable-webcam" ] ; then
   echo "Disabling usb webcam functionalities"
   CONFIGURE_USB_WEBCAM=false
 fi
-
-CONFIG=/sys/kernel/config/usb_gadget/piwebcam
-mkdir -p "$CONFIG"
-cd "$CONFIG" || exit 1
-
-echo 0x1d6b > idVendor
-echo 0x0104 > idProduct
-echo 0x0100 > bcdDevice
-echo 0x0200 > bcdUSB
-
-echo 0xEF > bDeviceClass
-echo 0x02 > bDeviceSubClass
-echo 0x01 > bDeviceProtocol
-echo 0x40 > bMaxPacketSize0
-
-mkdir -p strings/0x409
-mkdir -p configs/c.2
-mkdir -p configs/c.2/strings/0x409
-echo 100000000d2386db         > strings/0x409/serialnumber
-echo "Show-me Webcam Project" > strings/0x409/manufacturer
-echo "Piwebcam"               > strings/0x409/product
-echo 500                      > configs/c.2/MaxPower
-echo "Piwebcam"               > configs/c.2/strings/0x409/configuration
-
 
 config_usb_network_rndis () {
   mkdir -p functions/rndis.usb0
@@ -63,7 +40,6 @@ config_usb_network_rndis () {
   echo "$2" > functions/rndis.usb0/dev_addr
 
   mkdir -p os_desc
-  echo "0x80"     > configs/c.2/bmAttributes
   echo "1"        > os_desc/use
   echo "0xbc"     > os_desc/b_vendor_code
   echo "MSFT100"  > os_desc/qw_sign
@@ -72,7 +48,18 @@ config_usb_network_rndis () {
   echo "RNDIS"    > functions/rndis.usb0/os_desc/interface.rndis/compatible_id
   echo "5162001"  > functions/rndis.usb0/os_desc/interface.rndis/sub_compatible_id
 
+  # HACK: Need to force Windows to reload the USB composite config
+  # Whenever the USB Composite device changes configuration, it needs a new ID
+  # Because Showmewebcam has idProduct=0x0104 in the past, to support people
+  # running previous versions of Showmewebcam upgrading to a version with networking
+  # without having to tell them that they need to delete the registry key
+  # we need to change idProduct to something different.
+  # See: https://github.com/RoganDawes/P4wnP1/blob/master/boot/init_usb.sh
+  ID_PRODUCT=0x0105
+
   ln -s functions/rndis.usb0 configs/c.2/
+
+  # This has to be done last after all the usb configs have been set up
   ln -s configs/c.2/ os_desc
 }
 
@@ -157,6 +144,39 @@ config_usb_webcam () {
 
   ln -s functions/uvc.usb0 configs/c.2/uvc.usb0
 }
+
+config_usb_params () {
+  echo "$ID_VENDOR"  > idVendor
+  echo "$ID_PRODUCT" > idProduct
+
+  echo 0x0100 > bcdDevice # set device version 1.0.0
+  echo 0x0200 > bcdUSB    # set USB mode to USB 2.0
+
+  echo 0xEF > bDeviceClass
+  echo 0x02 > bDeviceSubClass
+  echo 0x01 > bDeviceProtocol
+  echo 0x40 > bMaxPacketSize0
+
+  mkdir -p strings/0x409
+  mkdir -p configs/c.2
+  mkdir -p configs/c.2/strings/0x409
+
+  echo 100000000d2386db         > strings/0x409/serialnumber
+  echo "Show-me Webcam Project" > strings/0x409/manufacturer
+  echo "Piwebcam"               > strings/0x409/product
+  echo 500                      > configs/c.2/MaxPower
+  echo "Piwebcam"               > configs/c.2/strings/0x409/configuration
+  echo "0x80"                   > configs/c.2/bmAttributes #  USB_OTG_SRP | USB_OTG_HNP
+}
+
+
+CONFIG=/sys/kernel/config/usb_gadget/piwebcam
+mkdir -p "$CONFIG"
+cd "$CONFIG" || exit 1
+
+# First configure general params
+config_usb_params
+
 
 # Check if camera is installed correctly
 if [ ! -e /dev/video0 ] ; then
